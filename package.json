@@ -1,0 +1,28 @@
+{
+  "name": "remotig-proxy",
+  "version": "0.7.0",
+  "description": "Proxy for more remotig servers",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "proxy",
+    "express",
+    "remotig"
+  ],
+  "author": "Mike Karas OM4AA <mike.om4aa@gmail.com>",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zoliqe/remotig-proxy.git"
+  },
+  "dependencies": {
+    "express": "^4.16.4",
+    "helmet": "^3.15.0",
+    "http": "0.0.0"
+  },
+  "devDependencies": {
+    "http-proxy-middleware": "^0.19.1"
+  }
+}
