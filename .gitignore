@@ -1,3 +1,7 @@
+webrtc/
+smartceiver/
+remotig/
+
 # Logs
 logs
 *.log
