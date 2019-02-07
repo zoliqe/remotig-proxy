@@ -41,7 +41,7 @@ app.use(function(req, res, next) {
   next()
 })
 
-const loginHtml = fs.readFileSync('login.html', 'utf8')
+const loginHtml = fs.readFileSync('ws-login.html', 'utf8')
 const loginHtmlFor = (rig) => loginHtml.replace('RIG_PLACEHOLDER', rig)
 
 const setupRoutes = ({rig, host} = {rig: null, host: null}) => {
