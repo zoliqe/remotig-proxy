@@ -45,7 +45,7 @@ const loginUrl = rig => {
 
 app.use('/smartceiver', express.static('smartceiver'))
 app.use('/webrtc', express.static('webrtc'))
-app.use('/remotig-tvcr', express.static('remotig'))
+app.use('/remotig-tcvr', express.static('remotig'))
 
 //app.use('', (req, res) => res.send('.-. . -- --- - .. --.   BY   --- -- ....- .- .-'))
 
