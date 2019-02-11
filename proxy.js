@@ -26,6 +26,11 @@ const credentials = {
 		ca: ca
 }
 
+const tokens = require('./tokens')
+const managedRigs = Object.keys(tokens)
+const rigs = {}
+console.log('Managed rigs:', managedRigs)
+
 app.use(helmet())
 // redirect HTTP request to HTTPS
 app.use(function(req, res, next) {
@@ -35,22 +40,24 @@ app.use(function(req, res, next) {
 	next()
 })
 
-const loginHtml = fs.readFileSync('login.html', 'utf8')
-const loginHtmlFor = (rig) => loginHtml.replace('RIG_PLACEHOLDER', rig)
-const loginUrl = rig => {
-	const url = `/remotig/${rig}`
-	console.log('use:', url)
-	app.use(url, (req, res) => res.send(loginHtmlFor(rig)))
-}
-
 app.use('/smartceiver', express.static('smartceiver'))
 app.use('/webrtc', express.static('webrtc'))
-app.use('/remotig-tcvr', express.static('remotig'))
+app.use('/remotig-pwa', express.static('remotig'))
 
-//app.use('', (req, res) => res.send('.-. . -- --- - .. --.   BY   --- -- ....- .- .-'))
+const loginHtml = fs.readFileSync('login.html', 'utf8')
+const loginHtmlFor = (rig) => loginHtml.replace('RIG_PLACEHOLDER', rig)
 
-loginUrl('om4aa-k2')
-loginUrl('om4q-ft1000')
+const rigRouter = express.Router()
+rigRouter.get('/', (req, res, next) => {
+	res.send('.-. . -- --- - .. --.   BY   --- -- ....- .- .-')
+})
+rigRouter.get('/:rigId', (req, res, next) => {
+	res.send(loginHtmlFor(req.params.rigId))
+})
+rigRouter.get('/:rigId/status', (req, res, next) => {
+	res.send(rigs[req.params.rigId] || {})
+})
+app.use('/remotig', rigRouter)
 
 // Starting http & https servers
 const httpServer = http.createServer(app)
@@ -73,47 +80,77 @@ io.sockets.on('connection', function(socket) {
 		socket.emit('log', array);
 	}
 
-	socket.on('message', function(message) {
-		log(`Client ${socket.id}: ${JSON.stringify(message)}`);
+	socket.on('message', message => {
+		log(`Client ${socket.id}: ${JSON.stringify(message)}`)
 		const rigs = Object.keys(socket.rooms)
 		rigs.forEach(rig => socket.to(rig).emit('message', message))
-	});
+	})
 
-	socket.on('create', function(rig) {
-		log('Received request to create rig ' + rig);
+	socket.on('open', rig => {
+		log('Received request to open rig ' + rig)
 
-		var clientsInStream = io.sockets.adapter.rooms[rig];
-		var numClients = clientsInStream ? Object.keys(clientsInStream.sockets).length : 0;
-		log('Rig ' + rig + ' now has ' + numClients + ' listeners');
+		var clientsInStream = io.sockets.adapter.rooms[rig]
+		var numClients = clientsInStream ? Object.keys(clientsInStream.sockets).length : 0
+		log('Rig ' + rig + ' now has ' + numClients + ' operators')
 
-		if (numClients === 0) {
-			socket.join(rig);
-			log('Client ' + socket.id + ' created rig ' + rig);
-			socket.emit('created', rig, socket.id);
+		if (numClients === 0 && managedRigs.includes(rig)) {
+			socket.join(rig)
+			rigs[rig] = {id: socket.id}
+			log('Client ' + socket.id + ' opened rig ' + rig)
+			socket.emit('opened', rig, socket.id)
 		}
-	});
+	})
 
-	socket.on('join', function(rig) {
-		log('Received request to join rig ' + rig);
+	socket.on('join', kredence => {
+		if (!kredence || !kredence.rig || !kredence.token) return;
+		const rig = kredence.rig
+		const op = whoIn(kredence.token)
+		log('Received request to join:', { rig: rig, op: op })
+		
+		if (!rigs[rig]) { // rig not found
+			log('empty', rig)
+			socket.emit('empty', rig)
+			return
+		}
+		if (!tokens[rig].includes(kredence.token.toUpperCase())) { // unauthorized
+			log('full', kredence)
+			socket.emit('full', rig)
+			return
+		}
+		log('Authored', op)
 
-		var clientsInStream = io.sockets.adapter.rooms[rig];
-		var numClients = clientsInStream ? Object.keys(clientsInStream.sockets).length : 0;
-		log('Rig ' + rig + ' now has ' + numClients + ' listeners');
+		var clientsInStream = io.sockets.adapter.rooms[rig]
+		var numClients = clientsInStream ? Object.keys(clientsInStream.sockets).length : 0
+		log('Rig ' + rig + ' now has ' + numClients + ' operators')
 
-		if (numClients === 1) {
-			log('Client ID ' + socket.id + ' joined rig ' + rig);
-			io.sockets.in(rig).emit('join', rig);
-			socket.join(rig);
-			socket.emit('joined', rig, socket.id);
-			io.sockets.in(rig).emit('ready');
+		if (numClients === 1 && !rigs[rig].op) {
+			log('Client ID ' + socket.id + ' joined rig ' + rig)
+			io.sockets.in(rig).emit('join', rig)
+			socket.join(rig)
+			rigs[rig].op = op
+			rigs[rig].opId = socket.id
+			socket.emit('joined', rig, socket.id)
+			io.sockets.in(rig).emit('ready')
 		} else if (numClients === 0) {
 			socket.emit('empty', rig)
 		} else { // max one clients
-			socket.emit('full', rig);
-		}
-	});
+			if (rigs[rig].op === op) {
+				// TODO disc others (when op === rigs[rig].op), restart session
 
-	// socket.on('bye', function(){
-	// 	console.log('received bye');
-	// });
-});
+			}
+			socket.emit('full', rig)
+		}
+	})
+
+	socket.on('close', rig => {
+		console.log('Closing', rig)
+		delete rigs[rig]
+	})
+})
+
+function whoIn(token) {
+	if (!token) return null
+	const delPos = token.indexOf('-')
+	return delPos > 3 ? token.substring(0, delPos).toUpperCase() : null
+}
+

@@ -78,16 +78,19 @@
 		}
 	
 		const onClick = () => {
-			console.log('power=on, who:', op)
+			console.log('power=on, op:', op)
 			location = `/smartceiver/?token=${op.toLowerCase()}-${pin}&rig=${rig}&remoddle=bt`
 		}
 	
 		const fetchWho = async () => {
-			const response = await fetch(`/remotig-${rig}/status`)
+			const response = await fetch(`/remotig/${rig}/status`)
+			let online = false
 			if (response.ok) {
 				const status = await response.json()
-				if (status) txtWho.innerHTML = status.who || '<span class="online">ONLINE&nbsp;&amp;&nbsp;FREE</span>'
-			} else txtWho.innerHTML = '<span class="offline">OFFLINE</span>'
+				online = status && status.id
+				if (online) txtWho.innerHTML = status.op || '<span class="online">ONLINE&nbsp;&amp;&nbsp;FREE</span>'
+			}
+			if (!online) txtWho.innerHTML = '<span class="offline">OFFLINE</span>'
 		}
 
 		setInterval(fetchWho, 1000)
