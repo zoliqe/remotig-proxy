@@ -56,7 +56,8 @@ rigRouter.get('/:rigId', (req, res, next) => {
 	res.send(loginHtmlFor(req.params.rigId))
 })
 rigRouter.get('/:rigId/status', (req, res, next) => {
-	res.send(rigs[req.params.rigId] || {})
+	const {op, id} = (rigs[req.params.rigId] || {})
+	res.send({op: op, id: id})
 })
 app.use('/remotig', rigRouter)
 
