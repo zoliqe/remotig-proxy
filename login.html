@@ -88,6 +88,7 @@
 			if (response.ok) {
 				const status = await response.json()
 				online = status && status.id
+				console.debug('rtt:', status.rtt)
 				if (online) txtWho.innerHTML = status.op || '<span class="online">ONLINE&nbsp;&amp;&nbsp;FREE</span>'
 			}
 			if (!online) txtWho.innerHTML = '<span class="offline">OFFLINE</span>'

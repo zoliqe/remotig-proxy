@@ -5,6 +5,8 @@
 
 const httpPort = 80
 const httpsPort = 443
+const tickSeconds = 10
+const rigTtlMax = 60000
 
 console.log('Starting')
 // Dependencies
@@ -16,14 +18,10 @@ const helmet = require('helmet')
 const app = express()
 
 // Certificate
-const privateKey = fs.readFileSync('/etc/letsencrypt/live/om4aa.ddns.net/privkey.pem', 'utf8')
-const certificate = fs.readFileSync('/etc/letsencrypt/live/om4aa.ddns.net/cert.pem', 'utf8')
-const ca = fs.readFileSync('/etc/letsencrypt/live/om4aa.ddns.net/chain.pem', 'utf8')
-
 const credentials = {
-		key: privateKey,
-		cert: certificate,
-		ca: ca
+	key: fs.readFileSync('/etc/letsencrypt/live/om4aa.ddns.net/privkey.pem', 'utf8'),
+	cert: fs.readFileSync('/etc/letsencrypt/live/om4aa.ddns.net/cert.pem', 'utf8'),
+	ca: fs.readFileSync('/etc/letsencrypt/live/om4aa.ddns.net/chain.pem', 'utf8')
 }
 
 const tokens = require('./tokens')
@@ -44,20 +42,28 @@ const loginHtml = fs.readFileSync('login.html', 'utf8')
 const loginHtmlFor = (rig) => loginHtml.replace('RIG_PLACEHOLDER', rig)
 
 app.use('/smartceiver', express.static('smartceiver'))
-app.use('/webrtc', express.static('webrtc'))
-app.use('/remotig-pwa', express.static('remotig'))
+//app.use('/webrtc', express.static('webrtc'))
+app.use('/remotig-app', express.static('remotig'))
+app.use('/.well-known', express.static('certbot/.well-known')) // certbot
 
 const rigRouter = express.Router()
 rigRouter.get('/', (req, res, next) => {
-	res.send('.-. . -- --- - .. --.   BY   --- -- ....- .- .-')
+	res.send('<html><body><h1>.-. . -- --- - .. --.</h1><br/>BY<br/><h2>--- -- ....- .- .-</h2></body></html>')
 })
-rigRouter.get('/pwa', (req, res, next) => res.redirect('https://om4aa.ddns.net/remotig-pwa'))
-rigRouter.get('/:rigId', (req, res, next) => {
-	res.send(loginHtmlFor(req.params.rigId))
+rigRouter.get('/app', (req, res, next) => res.redirect('https://om4aa.ddns.net/remotig-app'))
+rigRouter.get('/:rig', (req, res, next) => {
+	res.send(loginHtmlFor(req.params.rig))
 })
-rigRouter.get('/:rigId/status', (req, res, next) => {
-	const {op, id} = (rigs[req.params.rigId] || {})
-	res.send({op: op, id: id})
+rigRouter.get('/:rig/status', (req, res, next) => {
+	const rig = req.params.rig
+	const {op, id, tick, rtt, userSocket} = (rigs[rig] || {})
+	if (tick && Date.now() - tick < rigTtlMax) {
+		res.send({op: op, id: id, rtt: rtt})
+		return;
+	}
+	userSocket && leaveRig(rig, userSocket)
+	rigs[rig] && delete rigs[rig]
+	res.send({op: null, id: null, rtt: null})
 })
 app.use('/remotig', rigRouter)
 
@@ -92,12 +98,16 @@ io.sockets.on('connection', function(socket) {
 		log('Received request to open rig ' + rig)
 
 		var clientsInStream = io.sockets.adapter.rooms[rig]
-		var numClients = clientsInStream ? Object.keys(clientsInStream.sockets).length : 0
-		log('Rig ' + rig + ' now has ' + numClients + ' operators')
-
-		if (numClients === 0 && managedRigs.includes(rig)) {
+		var clientsCount = clientsInStream ? Object.keys(clientsInStream.sockets).length : 0
+		if (clientsCount) {
+			log('Rig ' + rig + ' now has ' + clientsCount + ' sockets opened, disconnecting them')
+			socket.to(rig).emit('bye')
+			rigs[rig] && leaveRig(rig, rigs[rig].userSocket)
+		}
+		rigs[rig] && delete rigs[rig]
+		if (managedRigs.includes(rig)) {
 			socket.join(rig)
-			rigs[rig] = {id: socket.id}
+			rigs[rig] = {id: socket.id, socket: socket, tick: Date.now()}
 			log('Client ' + socket.id + ' opened rig ' + rig)
 			socket.emit('opened', rig, socket.id)
 		}
@@ -107,7 +117,7 @@ io.sockets.on('connection', function(socket) {
 		if (!kredence || !kredence.rig || !kredence.token) return;
 		const rig = kredence.rig
 		const op = whoIn(kredence.token)
-		log('Received request to join:', { rig: rig, op: op })
+		log('Join request:', { rig: rig, op: op })
 		
 		if (!rigs[rig]) { // rig not found
 			log('empty', rig)
@@ -115,7 +125,7 @@ io.sockets.on('connection', function(socket) {
 			return
 		}
 		if (!tokens[rig].includes(kredence.token.toUpperCase())) { // unauthorized
-			log('full', kredence)
+			log('full', rig)
 			socket.emit('full', rig)
 			return
 		}
@@ -129,53 +139,81 @@ io.sockets.on('connection', function(socket) {
 			return
 		}
 
-		const currentOp = rigs[rig].op
+		let currentOp = rigs[rig].op
+		if (currentOp === op) {
+			leaveRig(rig, rigs[rig].userSocket)
+			currentOp = null
+		}
 		if (!currentOp) {
 			joinRig(rig, socket, op, log)
 		} else { // max one op
 			log(`Rig ${rig} is now operated by ${currentOp}.`)
-			if (currentOp === op) {
-				leaveRig(rig, rigs[rig].socket)
-				joinRig(rig, socket, op, log)
-			}
 			socket.emit('full', rig)
 		}
 	})
 	socket.on('leave', kredence => {
 		if (!kredence || !kredence.rig || !kredence.token) return;
+		// if (!tokens[kredence.rig].includes(kredence.token.toUpperCase())) return; // unauthorized
+		
+		// const op = whoIn(kredence.token)
 		leaveRig(kredence.rig, socket)
 	})
 
 	socket.on('logout', rig => {
 		console.log('Logout all from', rig)
-		if (!rigs[rig]) return;
-		leaveRig(rig, rigs[rig].socket)
+		if (!rigs[rig] || rigs[rig].id !== socket.id) return;
+		leaveRig(rig, rigs[rig].userSocket)
 	})
 	socket.on('close', rig => {
 		console.log('Closing', rig)
-		if (!rigs[rig]) return;
-		leaveRig(rig, rigs[rig].socket)
+		if (!rigs[rig] || rigs[rig].id !== socket.id) return;
+		leaveRig(rig, rigs[rig].userSocket)
 		delete rigs[rig]
 	})
+
+	socket.on('po', params => {
+		// console.log('pong:', params)
+		if (!params || !rigs[params.rig]) return;
+		const rig = rigs[params.rig]
+		if (socket.id !== rig.id) return;
+
+		rig.tick = Date.now()
+		rig.rtt = rig.tick - Number(params.time)
+	})
+	socket.on('ping', data => socket.emit('pong', data))
 })
+
+
+setInterval(tick, tickSeconds * 1000)
+
+function tick() {
+	Object.keys(rigs).forEach(ping)
+}
+
+function ping(rig) {
+	const p = {rig: rig, time: Date.now()}
+	// console.log('ping:', p)
+	rigs[rig] && rigs[rig].socket.emit('pi', p)
+}
 
 function joinRig(rig, socket, op, log) {
 	io.sockets.in(rig).emit('join', op)
 	socket.join(rig)
 	rigs[rig].op = op
-	rigs[rig].socket = socket
+	rigs[rig].userSocket = socket
 	log(`Operator ${op} (Client ID=${socket.id}) joined rig ${rig}`)
 	socket.emit('joined', rig, op)
 	io.sockets.in(rig).emit('ready')
 }
 
 function leaveRig(rig, socket) {
+	const rigOp = rigs[rig]
 	if (socket) {
+		if (rigOp && socket !== rigOp.userSocket) return;
 		socket.leave(rig)
 		socket.disconnect(true)
 	}
-	const rigOp = rigs[rig]
-	rigOp && delete rigOp.op && delete rigOp.socket
+	rigOp && delete rigOp.op && delete rigOp.userSocket
 }
 
 function whoIn(token) {
@@ -184,3 +222,4 @@ function whoIn(token) {
 	return delPos > 3 ? token.substring(0, delPos).toUpperCase() : null
 }
 
+const secondsNow = () => Math.floor(Date.now() / 1000)
