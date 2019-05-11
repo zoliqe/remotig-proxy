@@ -39,10 +39,10 @@
 			padding: 5px;
 		}
 		.on {
-			background-color: darkred;
+			background-color: darkgreen;
 		}
 		.off {
-			background-color: darkgreen;
+			background-color: darkred;
 		}
 		.offline {
 			color: #a01010;
@@ -157,7 +157,7 @@
 			if (!online) txtWho.innerHTML = '<span class="offline">OFFLINE</span>'
 		}
 
-		setInterval(fetchWho, 1000)
+		setInterval(fetchWho, 2000)
 		// mdc.ripple.MDCRipple.attachTo(txtOp)
 		// mdc.ripple.MDCRipple.attachTo(txtPin)
 		// txtOp.addEventListener('keyup', onChange)
@@ -372,7 +372,7 @@
 					this.sendCommand('poweron')
 
 					setTimeout(() => {
-						this._startPowerOnTimer(10000)
+						this._startPowerOnTimer(2000)
 						this.onconnect && this.onconnect(this)
 					}, 5000) // delay for tcvr-init after poweron 
 				}
