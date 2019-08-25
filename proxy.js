@@ -7,6 +7,11 @@ const httpPort = 80
 const httpsPort = 443
 const tickSeconds = 10
 const rigTtlMax = 60000
+const iceServers = [
+	{ urls: 'stun:stun.l.google.com:19302'},
+	// {urls: 'turns:om4aa.ddns.net:25349', username: 'remotig', credential: 'om4aa'},
+	{ urls: 'turns:rozkvet.radioklub.sk:25349', username: 'remotig', credential: 'om4aa'},
+]
 
 console.log('Starting')
 // Dependencies
@@ -19,9 +24,9 @@ const app = express()
 
 // Certificate
 const credentials = {
-	key: fs.readFileSync('/etc/letsencrypt/live/om4aa.ddns.net/privkey.pem', 'utf8'),
-	cert: fs.readFileSync('/etc/letsencrypt/live/om4aa.ddns.net/cert.pem', 'utf8'),
-	ca: fs.readFileSync('/etc/letsencrypt/live/om4aa.ddns.net/chain.pem', 'utf8')
+	key: fs.readFileSync('/etc/letsencrypt/live/rozkvet.radioklub.sk/privkey.pem', 'utf8'),
+	cert: fs.readFileSync('/etc/letsencrypt/live/rozkvet.radioklub.sk/cert.pem', 'utf8'),
+	ca: fs.readFileSync('/etc/letsencrypt/live/rozkvet.radioklub.sk/chain.pem', 'utf8')
 }
 
 const tokens = require('./tokens')
@@ -43,28 +48,18 @@ const loginHtmlFor = (rig) => loginHtml.replace('RIG_PLACEHOLDER', rig)
 
 app.use('/smartceiver', express.static('smartceiver'))
 //app.use('/webrtc', express.static('webrtc'))
-app.use('/remotig-app', express.static('remotig'))
+//app.use('/remotig-app', express.static('remotig'))
 app.use('/.well-known', express.static('certbot/.well-known')) // certbot
 
 const rigRouter = express.Router()
 rigRouter.get('/', (req, res, next) => {
 	res.send('<html><body><h1>.-. . -- --- - .. --.</h1><br/>BY<br/><h2>--- -- ....- .- .-</h2></body></html>')
 })
-rigRouter.get('/app', (req, res, next) => res.redirect('https://om4aa.ddns.net/remotig-app'))
+//rigRouter.get('/app', (req, res, next) => res.redirect('https://om4aa.ddns.net/remotig-app'))
 rigRouter.get('/:rig', (req, res, next) => {
 	res.send(loginHtmlFor(req.params.rig))
 })
-rigRouter.get('/:rig/status', (req, res, next) => {
-	const rig = req.params.rig
-	const {op, id, tick, rtt, userSocket} = (rigs[rig] || {})
-	if (tick && Date.now() - tick < rigTtlMax) {
-		res.send({op: op, id: id, rtt: rtt})
-		return;
-	}
-	userSocket && leaveRig(rig, userSocket)
-	rigs[rig] && delete rigs[rig]
-	res.send({op: null, id: null, rtt: null})
-})
+rigRouter.get('/:rig/status', (req, res, next) => res.send(rigState(req.params.rig)))
 app.use('/remotig', rigRouter)
 
 // Starting http & https servers
@@ -112,6 +107,8 @@ io.sockets.on('connection', function(socket) {
 			socket.emit('opened', rig, socket.id)
 		}
 	})
+
+	socket.on('state', rig => socket.emit('state', rigState(rig)))
 
 	socket.on('join', kredence => {
 		if (!kredence || !kredence.rig || !kredence.token) return;
@@ -202,7 +199,7 @@ function joinRig(rig, socket, op, log) {
 	rigs[rig].op = op
 	rigs[rig].userSocket = socket
 	log(`Operator ${op} (Client ID=${socket.id}) joined rig ${rig}`)
-	socket.emit('joined', rig, op)
+	socket.emit('joined', { rig: rig, op: op, iceServers: iceServers })
 	io.sockets.in(rig).emit('ready')
 }
 
@@ -220,6 +217,15 @@ function whoIn(token) {
 	if (!token) return null
 	const delPos = token.indexOf('-')
 	return delPos > 3 ? token.substring(0, delPos).toUpperCase() : null
+}
+
+function rigState(rig) {
+	const { op, id, tick, rtt, userSocket } = (rigs[rig] || {})
+	if (tick && Date.now() - tick < rigTtlMax) return { op: op, id: id, rtt: rtt }
+
+	userSocket && leaveRig(rig, userSocket)
+	rigs[rig] && delete rigs[rig]
+	return { op: null, id: null, rtt: null }
 }
 
 const secondsNow = () => Math.floor(Date.now() / 1000)

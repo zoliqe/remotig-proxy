@@ -87,7 +87,7 @@
 		</li>
 	</ul>
 
-	<script defer src="https://om4aa.ddns.net/socket.io/socket.io.js"></script>
+	<script defer src="https://rozkvet.radioklub.sk/socket.io/socket.io.js"></script>
 	<script>
 		const rig = 'RIG_PLACEHOLDER' // placeholder replaced by server app
 		let op = ''
@@ -118,7 +118,7 @@
 		const onTcvrClick = () => {
 			if (invalid()) return
 			console.log('power=on, op:', op)
-			location = `/smartceiver/?token=${op.toLowerCase()}-${pin}&rig=${rig}&remoddle=bt`
+			location = `https://zoliqe.github.io/smartceiver/?rig=${rig}@rozkvet.radioklub.sk&token=${op.toLowerCase()}-${pin}&remoddle=bt`
 		}
 		const onPowerOn = _ => {
 			if (invalid() || pwrState) return
@@ -173,7 +173,7 @@
 					this.pcConfig = {
 						'iceServers': [{
 							//    'urls': 'stun:stun.l.google.com:19302'
-							"urls": ['turns:om4aa.ddns.net:25349'],
+							"urls": ['turns:rozkvet.radioklub.sk:25349'],
 							"username": 'remotig',
 							"credential": 'om4aa'
 						}]
@@ -183,7 +183,7 @@
 						reconnectionDelay: 10000,
 						reconnectionDelayMax: 60000,
 					}
-					this.signalingUrl = 'wss://om4aa.ddns.net'
+					this.signalingUrl = 'wss://rozkvet.radioklub.sk'
 					this._isReady = false;
 					this._isStarted = false;
 				}
