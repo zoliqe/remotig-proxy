@@ -1,32 +1,17 @@
-//const express = require('express');
-//const app = express();
-//app.use(express.static('static'));
-//app.listen(8080);
-
-const httpPort = 80
-const httpsPort = 443
-const tickSeconds = 10
-const rigTtlMax = 60000
-const iceServers = [
-	{ urls: 'stun:stun.l.google.com:19302'},
-	// {urls: 'turns:om4aa.ddns.net:25349', username: 'remotig', credential: 'om4aa'},
-	{ urls: 'turns:rozkvet.radioklub.sk:25349', username: 'remotig', credential: 'om4aa'},
-]
-
 console.log('Starting')
 // Dependencies
-const fs = require('fs');
-const http = require('http');
-const https = require('https');
-const express = require('express');
+const fs = require('fs')
+const http = require('http')
+const https = require('https')
+const express = require('express')
 const helmet = require('helmet')
-const app = express()
+const options = require('./options')
 
 // Certificate
 const credentials = {
-	key: fs.readFileSync('/etc/letsencrypt/live/rozkvet.radioklub.sk/privkey.pem', 'utf8'),
-	cert: fs.readFileSync('/etc/letsencrypt/live/rozkvet.radioklub.sk/cert.pem', 'utf8'),
-	ca: fs.readFileSync('/etc/letsencrypt/live/rozkvet.radioklub.sk/chain.pem', 'utf8')
+	key: fs.readFileSync(options.keyFile, 'utf8'),
+	cert: fs.readFileSync(options.certFile, 'utf8'),
+	ca: fs.readFileSync(options.caFile, 'utf8')
 }
 
 const tokens = require('./tokens')
@@ -34,6 +19,7 @@ const managedRigs = Object.keys(tokens)
 const rigs = {}
 console.log('Managed rigs:', managedRigs)
 
+const app = express()
 app.use(helmet())
 // redirect HTTP request to HTTPS
 app.use(function(req, res, next) {
@@ -43,32 +29,14 @@ app.use(function(req, res, next) {
 	next()
 })
 
-const loginHtml = fs.readFileSync('login.html', 'utf8')
-const loginHtmlFor = (rig) => loginHtml.replace('RIG_PLACEHOLDER', rig)
-
-app.get('/', (req, res) => res.redirect('https://radioklub.sk'))
-// app.use('/smartceiver', express.static('smartceiver'))
-//app.use('/webrtc', express.static('webrtc'))
-//app.use('/remotig-app', express.static('remotig'))
-app.use('/.well-known', express.static('certbot/.well-known')) // certbot
-
-const rigRouter = express.Router()
-rigRouter.get('/', (req, res, next) => {
-	res.send('<html><body><h1>.-. . -- --- - .. --.</h1><br/>BY<br/><h2>--- -- ....- .- .-</h2></body></html>')
-})
-//rigRouter.get('/app', (req, res, next) => res.redirect('https://om4aa.ddns.net/remotig-app'))
-rigRouter.get('/:rig', (req, res, next) => {
-	res.send(loginHtmlFor(req.params.rig))
-})
-// rigRouter.get('/:rig/status', (req, res, next) => res.send(rigState(req.params.rig)))
-app.use('/remotig', rigRouter)
+require('./extension')(app)
 
 // Starting http & https servers
 const httpServer = http.createServer(app)
 const httpsServer = https.createServer(credentials, app)
 
-httpServer.listen(httpPort, () => console.log(`HTTP Server running on port ${httpPort}`))
-httpsServer.listen(httpsPort, () => console.log(`HTTPS Server running on port ${httpsPort}`))
+httpServer.listen(options.httpPort, () => console.log(`HTTP Server running on port ${options.httpPort}`))
+httpsServer.listen(options.httpsPort, () => console.log(`HTTPS Server running on port ${options.httpsPort}`))
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 var socketIO = require('socket.io');
@@ -151,9 +119,6 @@ io.sockets.on('connection', function(socket) {
 	})
 	socket.on('leave', kredence => {
 		if (!kredence || !kredence.rig || !kredence.token) return;
-		// if (!tokens[kredence.rig].includes(kredence.token.toUpperCase())) return; // unauthorized
-		
-		// const op = whoIn(kredence.token)
 		log(`leaving ${kredence.rig}`)
 		leaveRig(kredence.rig, socket)
 	})
@@ -183,7 +148,7 @@ io.sockets.on('connection', function(socket) {
 })
 
 
-setInterval(tick, tickSeconds * 1000)
+setInterval(tick, options.tickSeconds * 1000)
 
 function tick() {
 	Object.keys(rigs).forEach(ping)
@@ -201,7 +166,7 @@ function joinRig(rig, socket, op, log) {
 	rigs[rig].op = op
 	rigs[rig].userSocket = socket
 	log(`Operator ${op} (Client ID=${socket.id}) joined rig ${rig}`)
-	socket.emit('joined', { rig: rig, op: op, iceServers: iceServers })
+	socket.emit('joined', { rig: rig, op: op, iceServers: options.iceServers })
 	io.sockets.in(rig).emit('ready')
 }
 
@@ -223,7 +188,7 @@ function whoIn(token) {
 
 function rigState(rig) {
 	const { op, id, tick, rtt, userSocket } = (rigs[rig] || {})
-	if (tick && Date.now() - tick < rigTtlMax) return { op: op, id: id, rtt: rtt }
+	if (tick && Date.now() - tick < options.rigTtlMax) return { op: op, id: id, rtt: rtt }
 
 	userSocket && leaveRig(rig, userSocket)
 	rigs[rig] && delete rigs[rig]
