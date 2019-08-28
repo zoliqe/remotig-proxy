@@ -46,7 +46,8 @@ app.use(function(req, res, next) {
 const loginHtml = fs.readFileSync('login.html', 'utf8')
 const loginHtmlFor = (rig) => loginHtml.replace('RIG_PLACEHOLDER', rig)
 
-app.use('/smartceiver', express.static('smartceiver'))
+app.get('/', (req, res) => res.redirect('https://radioklub.sk'))
+// app.use('/smartceiver', express.static('smartceiver'))
 //app.use('/webrtc', express.static('webrtc'))
 //app.use('/remotig-app', express.static('remotig'))
 app.use('/.well-known', express.static('certbot/.well-known')) // certbot
@@ -59,7 +60,7 @@ rigRouter.get('/', (req, res, next) => {
 rigRouter.get('/:rig', (req, res, next) => {
 	res.send(loginHtmlFor(req.params.rig))
 })
-rigRouter.get('/:rig/status', (req, res, next) => res.send(rigState(req.params.rig)))
+// rigRouter.get('/:rig/status', (req, res, next) => res.send(rigState(req.params.rig)))
 app.use('/remotig', rigRouter)
 
 // Starting http & https servers
@@ -153,6 +154,7 @@ io.sockets.on('connection', function(socket) {
 		// if (!tokens[kredence.rig].includes(kredence.token.toUpperCase())) return; // unauthorized
 		
 		// const op = whoIn(kredence.token)
+		log(`leaving ${kredence.rig}`)
 		leaveRig(kredence.rig, socket)
 	})
 
