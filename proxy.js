@@ -124,12 +124,12 @@ io.sockets.on('connection', function(socket) {
 	})
 
 	socket.on('logout', rig => {
-		console.log('Logout all from', rig)
+		log('Logout all from', rig)
 		if (!rigs[rig] || rigs[rig].id !== socket.id) return;
 		leaveRig(rig, rigs[rig].userSocket)
 	})
 	socket.on('close', rig => {
-		console.log('Closing', rig)
+		log('Closing', rig)
 		if (!rigs[rig] || rigs[rig].id !== socket.id) return;
 		leaveRig(rig, rigs[rig].userSocket)
 		delete rigs[rig]
