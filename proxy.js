@@ -46,14 +46,14 @@ io.sockets.on('connection', function(socket) {
 
 	// convenience function to log server messages on the client
 	function log() {
-		console.log(...arguments)
-		var array = ['proxy:'];
-		array.push.apply(array, arguments);
-		socket.emit('log', array);
+		console.log(new Date(), ...arguments)
+//		var array = ['proxy:'];
+//		array.push.apply(array, arguments);
+//		socket.emit('log', array);
 	}
 
 	socket.on('message', message => {
-		log(`Client ${socket.id}: ${JSON.stringify(message)}`)
+//		log(`Client ${socket.id}: ${JSON.stringify(message)}`)
 		const rigs = Object.keys(socket.rooms)
 		rigs.forEach(rig => socket.to(rig).emit('message', message))
 	})
