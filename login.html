@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta http-equiv="X-UA-Compatible" content="ie=edge">
+	<title>Remotig</title>
+	<link rel="stylesheet" href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css">
+	<script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
+
+	<style>
+		body {
+			background-color: rgb(61, 5, 99);
+			text-align: center;
+			color: lightgray;
+		}
+		ul {
+			list-style-type: none;
+		}
+		li {
+			margin: 1em;
+		}
+		button {
+			color: white; font-weight: bold; font-size: 1.3em;
+			border: 0; border-radius: 10px;
+			margin-top: 20px;
+			padding: 10px;
+		}
+		/* button:disabled {
+			color: black;
+		} */
+		input{
+			font-size: 1.2em; font-weight: bold;
+			margin-top: 20px;
+			border-radius: 10px; border-width: 1px;
+			padding: 5px;
+		}
+		.on {
+			background-color: darkgreen;
+		}
+		.off {
+			background-color: darkred;
+		}
+		.offline {
+			color: #db1818;
+		}
+		.online {
+			color: #13b413;
+		}
+		.operated {
+			padding-left: 1em;
+			color: #d6b70d;
+		}
+	</style>
+</head>
+<body>
+	<ul>
+		<li>
+			<div class="mdc-text-field mdc-text-field--outlined mdc-text-field--disabled">
+				<h2>Status: <span class="operated" id="who">loading...</span></h2>
+			</div>
+		</li>
+		<li>
+			<div class="_mdc-text-field _mdc-text-field--outlined">
+				<input class="_mdc-text-field__input" type="text" id="op" placeholder="Call" required minlength="5" size="8" autofocus tabindex="1">
+			</div>
+			<div class="_mdc-text-field _mdc-text-field--outlined">
+				<input class="_mdc-text-field__input" type="password" id="pin" placeholder="PIN" required minlength="4" size="5" tabindex="2">
+			</div>
+		</li>
+		<li>
+			<button id="tcvr" style="background: blue;" tabindex="3">WEB Console</button><br/>
+			<button id="power" class="off" tabindex="4">Power ON - HRD</button>
+		</li>
+		<li>
+			<span id="status"></span>
+		</li>
+	</ul>
+
+	<script defer src="/socket.io/socket.io.js"></script>
+	<script>
+		const rig = 'RIG_PLACEHOLDER' // placeholder replaced by server app
+		let op = ''
+		let pin = ''
+		let pwrState = false
+		let unackStateQueries = 0
+		const txtOp = document.querySelector('#op')
+		const txtPin = document.querySelector('#pin')
+		const btnTcvr = document.querySelector('#tcvr')
+		const btnPower = document.querySelector('#power')
+		const txtWho = document.querySelector('#who')
+		const txtStatus = document.querySelector('#status')
+		let connector
+
+		const invalid = _ => {
+			op = txtOp.value
+			pin = txtPin.value
+			const invalid = op.length < 5 || pin.length < 4
+			return invalid
+		}
+	
+		const onTcvrClick = () => {
+			if (invalid()) return
+			console.log('power=on, op:', op)
+			location = `https://zoliqe.github.io/smartceiver/?rig=${rig}@rozkvet.radioklub.sk&token=${op.toLowerCase()}-${pin}&remoddle=bt&autopwr=1`
+		}
+		const onPowerOn = _ => {
+			if (invalid() || pwrState) return
+			btnPower.innerHTML = '...'
+			const token = `${op.toLowerCase()}-${pin}`
+			connector.connect(token, rig, _ => {
+				pwrState = true
+				btnPower.className = 'on'
+				btnPower.innerHTML = 'Power OFF - HRD'
+			}, _ => {
+				pwrState = false
+				btnPower.className = 'off'
+				btnPower.innerHTML = 'Power ON - HRD'
+			})
+			window.onbeforeunload = _ => pwrState && connector.disconnect()
+		}
+		const onPowerOff = _ => {
+			if (invalid() || !pwrState) return
+			btnPower.innerHTML = '...'
+			window.onbeforeunload = null
+			connector.disconnect()
+			pwrState = false
+			btnPower.className = 'off'
+			btnPower.innerHTML = 'Power ON - HRD'
+		}
+	
+		const fetchWho = async () => {
+			this.unackStateQueries++
+			const status = await connector.checkState(rig)
+			if (status && status.id) {
+				console.debug('rtt:', status.rtt)
+				txtWho.innerHTML = status.op || '<span class="online">ONLINE&nbsp;&amp;&nbsp;FREE</span>'
+				this.unackStateQueries = 0
+			}
+			if (this.unackStateQueries > 2) txtWho.innerHTML = '<span class="offline">OFFLINE</span>'
+			return status
+		}
+
+		setInterval(fetchWho, 2000)
+		btnTcvr.addEventListener('click', onTcvrClick)
+		btnPower.addEventListener('click', onPowerOn)
+		btnPower.addEventListener('click', onPowerOff)
+
+			class RemotigRTCConnector {
+
+				constructor() {
+					this.signalingUrl = `wss://${location.host}`
+					this._isReady = false;
+					this._isStarted = false;
+				}
+				/////////////////////////////////////////////
+
+				connect(token, rig, successCallback, discCallback) {
+					if (this._isReady || this._isStarted) return;
+
+					this._rig = rig
+					this._token = token
+					this.onconnect = successCallback
+					this.ondisconnect = discCallback
+					console.info('connecting ' + this.signalingUrl)
+
+					this._connectSignaling()
+				}
+
+				reconnect() {
+					this.sendSignal('restart')
+					this.disconnect()
+					setTimeout(_ => this._connectSignaling(), 1000)
+				}
+
+				disconnect(options = { alertUser: false }) {
+					this.sendSignal('bye')
+
+					this._isStarted = false
+					this._isReady = false
+					if (this._cmdChannel) {
+						this._cmdChannel.close()
+						this._cmdChannel.onopen = null
+						this._cmdChannel.onerror = null
+						this._cmdChannel.onmessage = null
+						this._cmdChannel = null
+					}
+
+					if (this._pc) {
+						this._pc.close()
+						this._pc.onicecandidate = null
+						this._pc = null
+					}
+					this._signaling && this._signaling.disconnect()
+					this._signaling = null
+
+					if (options.alertUser) {
+						window.alert('Transceiver control disconnected!')
+						this.ondisconnect && this.ondisconnect()
+					}
+				}
+
+				get connected() {
+					return this._isStarted && this._pc && this._cmdChannel
+				}
+
+				checkState(rig) {
+					const signaling = io.connect(this.signalingUrl, { transports: ['websocket'] })
+					const statePromise = new Promise((resolve) => {
+						signaling.on('state', state => {
+							signaling.disconnect()
+							resolve(state)
+						})
+					})
+					signaling.emit('state', rig)
+					return statePromise
+				}
+				
+				////////////////////////////////////////////////////
+
+				_connectSignaling() {
+					if (!this._rig || !this._token) return;
+
+					this._signaling = io.connect(this.signalingUrl, { transports: ['websocket'] })
+					this._signaling.on('full', rig => {
+						console.error(`Rig ${rig} is busy`)
+						window.alert('Transceiver is busy.')
+						this.disconnect()
+					})
+					this._signaling.on('empty', rig => {
+						console.error(`Rig ${rig} empty`)
+						window.alert('Transceiver is not connected.')
+						this.disconnect()
+					})
+
+					this._signaling.on('joined', async (data) => {
+						console.info(`Operating ${data.rig} as ${data.op}`)
+						this._isReady = true
+						this.iceServers = data.iceServers
+						this.sendSignal('ready')
+					})
+
+					this._signaling.on('log', (array) => {
+						console.debug.apply(console, array)
+					})
+
+					// This client receives a message
+					this._signaling.on('message', (message) => {
+						console.info('signal message:', message)
+						if (message === 'ready') {
+							this._maybeStart()
+						} else if (message.type === 'offer') {
+							!this._isStarted && this._maybeStart()
+							this._pc.setRemoteDescription(new RTCSessionDescription(message))
+							this._doAnswer()
+						} else if (message.type === 'answer' && this._isStarted) {
+							this._pc.setRemoteDescription(new RTCSessionDescription(message))
+						} else if (message.type === 'candidate' && this._isStarted) {
+							const candidate = new RTCIceCandidate({
+								sdpMLineIndex: message.label,
+								candidate: message.candidate
+							})
+							this._pc.addIceCandidate(candidate)
+						} else if (message === 'bye' && this._isStarted) {
+							console.info('Session terminated.')
+							this.disconnect({ alertUser: true })
+						}
+					})
+
+					this._signaling.emit('join', { rig: this._rig, token: this._token })
+					console.debug('Attempted to operate signaling', this._rig)
+				}
+
+				sendSignal(message) {
+					if (this._signaling && this._signaling.connected) {
+						console.debug('sendSignal:', message)
+						this._signaling.emit('message', message)
+					}
+				}
+
+				_maybeStart() {
+					console.info(`>>>>>>> maybeStart(): isStarted=${this._isStarted}, isChannelReady=${this._isReady}`)
+					if (!this._isStarted && this._isReady) {
+						console.debug('>>>>>> creating peer connection')
+						this._createPeerConnection()
+						this._isStarted = true
+					}
+				}
+
+				/////////////////////////////////////////////////////////
+
+				_createPeerConnection() {
+					try {
+						const config = {'iceServers': this.iceServers}
+						this._pc = new RTCPeerConnection(config)
+						this._pc.onicecandidate = event => this._handleIceCandidate(event)
+						this._pc.ondatachannel = event => {
+							this._cmdChannel = event.channel
+							this._cmdChannel.onopen = evt => this._onCmdChannelOpen(evt)
+							this._cmdChannel.onclose = evt => this._onCmdChannelClose(evt)
+							this._cmdChannel.onerror = evt => this._onCmdChannelError(evt)
+							this._cmdChannel.onmessage = evt => this._onCmdChannelMessage(evt)
+						}
+						console.debug('Created RTCPeerConnnection')
+					} catch (e) {
+						console.error('Failed to create PeerConnection, exception: ' + e.message)
+						alert('Cannot communicate with transceiver.')
+						this.disconnect()
+					}
+				}
+
+				_handleIceCandidate(event) {
+					console.debug('icecandidate event: ', event)
+					if (event.candidate) {
+						this.sendSignal({
+							type: 'candidate',
+							label: event.candidate.sdpMLineIndex,
+							id: event.candidate.sdpMid,
+							candidate: event.candidate.candidate
+						})
+					} else {
+						console.debug('End of candidates.')
+					}
+				}
+
+				_doAnswer() {
+					console.info('Sending answer to peer.')
+					this._pc.createAnswer().then(
+						desc => this._setLocalAndSendMessage(desc),
+						error => console.error('doAnswer(): Failed to create session description: ' + error.toString())
+					)
+				}
+
+				_setLocalAndSendMessage(sessionDescription) {
+					this._pc.setLocalDescription(sessionDescription)
+					console.debug('setLocalAndSendMessage sending message', sessionDescription)
+					this.sendSignal(sessionDescription)
+				}
+
+				///////////////////////////////////////////////////////////////////////
+				sendCommand(cmd) {
+					try {
+						this._cmdChannel && this._cmdChannel.send(cmd)
+					} catch (err) {
+						console.error(`ERROR sendCommand(${cmd}):`, err)
+						this.disconnect({ alertUser: true })
+					}
+				}
+
+				_onCmdChannelOpen(event) {
+					console.log('ok, powering on')
+					this.sendCommand('poweron')
+
+					setTimeout(() => {
+						this._startPowerOnTimer(2000)
+						this.onconnect && this.onconnect(this)
+					}, 5000) // delay for tcvr-init after poweron 
+				}
+
+				_startPowerOnTimer(interval) {
+					this._timer = setInterval(() => this.sendCommand('poweron'), interval)
+				}
+
+				_onCmdChannelClose() {
+					clearInterval(this._timer)
+				}
+
+				_onCmdChannelMessage(event) {
+					console.info('command received:', event.data)
+				}
+
+				_onCmdChannelError(event) {
+					console.error('command error:', event)
+				}
+
+			}
+		
+			connector = new RemotigRTCConnector()
+	</script>
+</body>
+</html>
