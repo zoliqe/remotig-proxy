@@ -1,3 +1,9 @@
+options.js
+extension.js
+login.html
+tokens.js
+letsencrypt
+
 # Logs
 logs
 *.log
