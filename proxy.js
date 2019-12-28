@@ -58,10 +58,7 @@ io.sockets.on('connection', function(socket) {
 		rigs.forEach(rig => socket.to(rig).emit('message', message))
 	})
 
-<<<<<<< HEAD
-=======
 	// controller commands
->>>>>>> 33c0424da64e05003ddcedbf42eddbc98325f0a1
 	socket.on('open', rig => {
 		log('Received request to open rig ' + rig)
 
@@ -77,14 +74,6 @@ io.sockets.on('connection', function(socket) {
 			socket.join(rig)
 			rigs[rig] = {id: socket.id, socket: socket, tick: Date.now()}
 			log('Client ' + socket.id + ' opened rig ' + rig)
-<<<<<<< HEAD
-			socket.emit('opened', rig, socket.id)
-		}
-	})
-
-	socket.on('state', rig => socket.emit('state', rigState(rig)))
-
-=======
 			socket.emit('opened', {rig: rig, iceServers: options.iceServers, id: socket.id})
 		}
 	})
@@ -117,7 +106,6 @@ io.sockets.on('connection', function(socket) {
 
 	// connector cmds
 	socket.on('state', rig => socket.emit('state', rigState(rig))) 
->>>>>>> 33c0424da64e05003ddcedbf42eddbc98325f0a1
 	socket.on('join', kredence => {
 		if (!kredence || !kredence.rig || !kredence.token) return;
 		const rig = kredence.rig
@@ -156,38 +144,7 @@ io.sockets.on('connection', function(socket) {
 			socket.emit('full', rig)
 		}
 	})
-<<<<<<< HEAD
-	socket.on('leave', kredence => {
-		if (!kredence || !kredence.rig || !kredence.token) return;
-		log(`leaving ${kredence.rig}`)
-		leaveRig(kredence.rig, socket)
-	})
-
-	socket.on('logout', rig => {
-		log('Logout all from', rig)
-		if (!rigs[rig] || rigs[rig].id !== socket.id) return;
-		leaveRig(rig, rigs[rig].userSocket)
-	})
-	socket.on('close', rig => {
-		log('Closing', rig)
-		if (!rigs[rig] || rigs[rig].id !== socket.id) return;
-		leaveRig(rig, rigs[rig].userSocket)
-		delete rigs[rig]
-	})
-
-	socket.on('po', params => {
-		// console.log('pong:', params)
-		if (!params || !rigs[params.rig]) return;
-		const rig = rigs[params.rig]
-		if (socket.id !== rig.id) return;
-
-		rig.tick = Date.now()
-		rig.rtt = rig.tick - Number(params.time)
-	})
-	socket.on('ping', data => socket.emit('pong', data))
-=======
 //	socket.on('ping', data => socket.emit('pong', data))
->>>>>>> 33c0424da64e05003ddcedbf42eddbc98325f0a1
 })
 
 
